@@ -1,5 +1,6 @@
 using Awaken.Config;
 using Awaken.Core;
+using Awaken.Integration;
 
 namespace Awaken.UI;
 
@@ -21,6 +22,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _timed60 = new("1 小时");
     private readonly ToolStripMenuItem _timed120 = new("2 小时");
     private readonly ToolStripMenuItem _timedCustom = new("自定义...");
+    private readonly ToolStripMenuItem _autoStartItem = new("开机自启");
     private readonly System.Windows.Forms.Timer _tickTimer = new() { Interval = TickMs };
     private readonly AppConfig _config;
 
@@ -44,6 +46,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_timedItem);
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_autoStartItem);
         menu.Items.Add(new ToolStripMenuItem("退出", null, (_, _) => Exit()));
 
         _offItem.Click += (_, _) => SetMode(AwakeMode.Off);
@@ -51,6 +54,23 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _keepDisplayItem.Click += (_, _) => SetMode(AwakeMode.KeepDisplayOn);
 
         _tickTimer.Tick += OnTick;
+
+        _autoStartItem.Click += (_, _) =>
+        {
+            if (AutoStart.IsEnabled())
+            {
+                AutoStart.Disable();
+            }
+            else
+            {
+                AutoStart.Enable();
+            }
+
+            _autoStartItem.Checked = AutoStart.IsEnabled();
+        };
+
+        AutoStart.SelfHeal();
+        _autoStartItem.Checked = AutoStart.IsEnabled();
 
         _trayIcon = new NotifyIcon
         {
