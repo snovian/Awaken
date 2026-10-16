@@ -97,6 +97,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.AddRange([_offItem, _keepAwakeItem]);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_timedUntilItem);
+        menu.Items.Add(new ToolStripSeparator());
 
         // 一级菜单快捷定时项，默认 30 分钟 / 1 小时 / 2 小时，可在设置中调整。
         foreach (int minutes in _config.RootTimedMinutes.Order())
