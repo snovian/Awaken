@@ -9,6 +9,7 @@ namespace Awaken.UI;
 internal static class StateIcons
 {
     private static readonly Dictionary<AwakeMode, Icon> Cache = [];
+    private static Icon? _timedIcon;
 
     public static Icon For(AwakeMode mode)
     {
@@ -22,6 +23,23 @@ internal static class StateIcons
         return icon;
     }
 
+    /// <summary>定时模式图标：绿色圆 + 白色表盘。</summary>
+    public static Icon Timed()
+    {
+        if (_timedIcon is not null)
+        {
+            return _timedIcon;
+        }
+
+        using var bmp = new Bitmap(32, 32);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        DrawCircle(g, filled: true, Color.FromArgb(76, 175, 80));
+        DrawClock(g);
+        _timedIcon = Icon.FromHandle(bmp.GetHicon());
+        return _timedIcon;
+    }
+
     public static void DestroyAll()
     {
         foreach (Icon icon in Cache.Values)
@@ -30,6 +48,11 @@ internal static class StateIcons
         }
 
         Cache.Clear();
+        if (_timedIcon is not null)
+        {
+            _ = NativeMethods.DestroyIcon(_timedIcon.Handle);
+            _timedIcon = null;
+        }
     }
 
     private static Icon Draw(AwakeMode mode)
@@ -53,6 +76,15 @@ internal static class StateIcons
         }
 
         return Icon.FromHandle(bmp.GetHicon());
+    }
+
+    private static void DrawClock(Graphics g)
+    {
+        using var ring = new Pen(Color.White, 2f);
+        g.DrawEllipse(ring, 9, 9, 14, 14);
+        using var hands = new Pen(Color.White, 2.5f);
+        g.DrawLine(hands, 16, 16, 16, 11);
+        g.DrawLine(hands, 16, 16, 20, 16);
     }
 
     private static void DrawCircle(Graphics g, bool filled, Color color)
