@@ -109,13 +109,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
 
         _timedItem.DropDown.Items.AddRange([_timed30, _timed60, _timed120, _timedCustom]);
-        _timedItem.DropDown.Items.Add(new ToolStripSeparator());
-        _timedItem.DropDown.Items.Add(_timedUntilItem);
 
         var menu = new ContextMenuStrip();
         menu.Items.AddRange([_offItem, _keepAwakeItem]);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_timedItem);
+        menu.Items.Add(_timedUntilItem);
 
         // 一级菜单快捷定时项，内容来自设置。
         foreach (int minutes in _config.RootTimedMinutes.Order())
@@ -192,7 +191,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         DateTime target = now.Date + dialog.TimeOfDay;
         if (target <= now)
         {
-            target = target.AddDays(1);
+            MessageBox.Show("所选时刻今天已过，请选择之后的时刻。", "Awaken", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
         }
 
         _timedKind = TimedKind.Until;

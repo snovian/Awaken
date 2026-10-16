@@ -1,7 +1,7 @@
 namespace Awaken.UI;
 
 /// <summary>
-/// 直至时刻选择对话框（仅 HH:mm，无日期；当天该时刻已过则视为次日）。
+/// 直至时刻选择对话框（仅当天 HH:mm，已过时刻由调用方拒绝）。
 /// </summary>
 internal sealed class TimeDialog : Form
 {
@@ -22,7 +22,7 @@ internal sealed class TimeDialog : Form
 
         var label = new Label
         {
-            Text = "时刻（当天已过则顺延至次日）：",
+            Text = "时刻（仅限今天）：",
             AutoSize = true,
             Location = new Point(14, 16),
         };
