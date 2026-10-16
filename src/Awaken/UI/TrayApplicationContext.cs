@@ -27,6 +27,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private ToolStripMenuItem _timedCustom = null!;
     private ToolStripMenuItem _displayItem = null!;
     private ToolStripMenuItem _autoStartItem = null!;
+    private readonly List<ToolStripMenuItem> _rootTimedItems = [];
 
     private AwakeMode _mode;
     private bool _timedActive;
@@ -62,6 +63,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void BuildMenu()
     {
+        _rootTimedItems.Clear();
+
         _offItem = new ToolStripMenuItem("关闭");
         _keepAwakeItem = new ToolStripMenuItem("保持唤醒");
         _timedItem = new ToolStripMenuItem("定时保持唤醒");
@@ -99,9 +102,20 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.AddRange([_offItem, _keepAwakeItem]);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_timedItem);
+
+        // 一级菜单快捷定时项，内容来自设置。
+        foreach (int minutes in _config.RootTimedMinutes.Order())
+        {
+            var item = new ToolStripMenuItem($"保持唤醒 {DurationFormat.For(minutes)}") { Tag = minutes };
+            item.Click += (_, _) => StartTimed(minutes);
+            _rootTimedItems.Add(item);
+            menu.Items.Add(item);
+        }
+
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_displayItem);
         menu.Items.Add(_autoStartItem);
+        menu.Items.Add(new ToolStripMenuItem("设置...", null, (_, _) => ShowSettings()));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("退出", null, (_, _) => Exit()));
 
@@ -162,6 +176,20 @@ internal sealed class TrayApplicationContext : ApplicationContext
         UpdateVisuals();
     }
 
+    private void ShowSettings()
+    {
+        using var dialog = new SettingsDialog(_config.RootTimedMinutes);
+        if (dialog.ShowDialog() != DialogResult.OK)
+        {
+            return;
+        }
+
+        _config.RootTimedMinutes = [.. dialog.RootTimedMinutes];
+        ConfigStore.Save(_config);
+        BuildMenu();
+        UpdateVisuals();
+    }
+
     private void UpdateEngine() => _manager.SetState(_mode, _config.KeepDisplayOn);
 
     private void OnTick(object? sender, EventArgs e)
@@ -192,6 +220,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _timed60.Checked = _timedActive && _timedChosenMinutes == 60;
         _timed120.Checked = _timedActive && _timedChosenMinutes == 120;
         _timedCustom.Checked = _timedActive && _timedChosenMinutes is null;
+        foreach (ToolStripMenuItem item in _rootTimedItems)
+        {
+            item.Checked = _timedActive && _timedChosenMinutes == (int)item.Tag!;
+        }
+
         _displayItem.Checked = _config.KeepDisplayOn;
     }
 
