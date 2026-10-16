@@ -1,16 +1,21 @@
 namespace Awaken.UI;
 
 /// <summary>
-/// 设置对话框：管理显示在托盘一级菜单的快捷定时项。
+/// 设置对话框：勾选常用时长（30 分钟～12 小时），勾选项显示在托盘一级菜单。
 /// </summary>
 internal sealed class SettingsDialog : Form
 {
-    private readonly ListBox _list = new() { Sorted = true };
-    private readonly NumericUpDown _minutes = new();
+    private static readonly (int Minutes, string Label)[] Presets =
+    [
+        (30, "30 分钟"),
+        .. Enumerable.Range(1, 12).Select(h => (h * 60, DurationFormat.For(h * 60))),
+    ];
 
-    /// <summary>确认后的快捷定时项（分钟），已排序去重。</summary>
+    private readonly CheckedListBox _list = new();
+
+    /// <summary>勾选的快捷定时项（分钟），按预设顺序。</summary>
     public IReadOnlyList<int> RootTimedMinutes =>
-        _list.Items.Cast<int>().Order().ToList();
+        Presets.Where((_, i) => _list.GetItemChecked(i)).Select(p => p.Minutes).ToList();
 
     public SettingsDialog(IEnumerable<int> current)
     {
@@ -21,53 +26,31 @@ internal sealed class SettingsDialog : Form
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
         ShowInTaskbar = false;
+        Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 11f);
 
         var label = new Label
         {
-            Text = "一级菜单快捷定时项（分钟）：",
+            Text = "勾选显示在一级菜单的快捷定时项：",
             AutoSize = true,
-            Location = new Point(12, 15),
+            Location = new Point(14, 16),
         };
 
-        _list.SelectionMode = SelectionMode.One;
-        _list.SetBounds(12, 38, 250, 110);
-        foreach (int minutes in current.Order())
+        _list.CheckOnClick = true;
+        _list.SetBounds(14, 48, 330, 340);
+        HashSet<int> currentSet = [.. current];
+        foreach ((int minutes, string text) in Presets)
         {
-            _list.Items.Add(minutes);
+            _list.Items.Add(text, currentSet.Contains(minutes));
         }
-
-        _minutes.Minimum = 1;
-        _minutes.Maximum = 24 * 60;
-        _minutes.SetBounds(12, 160, 70, 27);
-
-        var addButton = new Button { Text = "添加" };
-        var removeButton = new Button { Text = "删除" };
-        addButton.SetBounds(92, 158, 75, 28);
-        removeButton.SetBounds(175, 158, 75, 28);
-        addButton.Click += (_, _) =>
-        {
-            int value = (int)_minutes.Value;
-            if (!_list.Items.Contains(value))
-            {
-                _list.Items.Add(value);
-            }
-        };
-        removeButton.Click += (_, _) =>
-        {
-            if (_list.SelectedIndex >= 0)
-            {
-                _list.Items.RemoveAt(_list.SelectedIndex);
-            }
-        };
 
         var ok = new Button { Text = "确定", DialogResult = DialogResult.OK };
         var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel };
-        ok.SetBounds(92, 200, 75, 28);
-        cancel.SetBounds(175, 200, 75, 28);
+        ok.SetBounds(180, 400, 78, 32);
+        cancel.SetBounds(266, 400, 78, 32);
         AcceptButton = ok;
         CancelButton = cancel;
 
-        Controls.AddRange([label, _list, _minutes, addButton, removeButton, ok, cancel]);
-        ClientSize = new Size(280, 240);
+        Controls.AddRange([label, _list, ok, cancel]);
+        ClientSize = new Size(356, 444);
     }
 }
