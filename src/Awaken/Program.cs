@@ -1,3 +1,5 @@
+using Awaken.UI;
+
 namespace Awaken;
 
 internal static class Program
@@ -15,7 +17,7 @@ internal static class Program
         }
 
         ApplicationConfiguration.Initialize();
-        using var context = new AwakenContext();
+        using var context = new TrayApplicationContext();
         Application.Run(context);
         GC.KeepAlive(mutex);
     }
