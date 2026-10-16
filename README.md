@@ -3,6 +3,9 @@
 仿 PowerToys Awake 的 Windows 保活小工具：托盘程序，阻止系统休眠/熄屏。
 单文件绿色版、无需安装、无需 UAC（管理员权限）。
 
+> 本项目与 Microsoft 无关，未获 Microsoft 认可。设计参考见
+> [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)，代码采用 [MIT](LICENSE) 许可证。
+
 ## 功能
 
 - **关闭** — 不干预，恢复正常电源策略
