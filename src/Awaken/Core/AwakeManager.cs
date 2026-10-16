@@ -22,19 +22,32 @@ internal sealed class AwakeManager : IDisposable
         _thread.Start();
     }
 
-    /// <summary>切换唤醒模式。非阻塞，实际状态由引擎线程异步应用。</summary>
-    public void SetMode(AwakeMode mode)
+    /// <summary>
+    /// 切换唤醒状态。<paramref name="keepDisplay"/> 为叠加开关：只要处于唤醒状态
+    /// （含定时唤醒），勾选即附加屏幕常亮；<see cref="AwakeMode.Off"/> 时无意义。
+    /// 非阻塞，实际状态由引擎线程异步应用。
+    /// </summary>
+    public void SetState(AwakeMode mode, bool keepDisplay)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        _stateQueue.Add(Translate(mode));
+        _stateQueue.Add(Translate(mode, keepDisplay));
     }
 
-    private static ExecutionState Translate(AwakeMode mode) => mode switch
+    private static ExecutionState Translate(AwakeMode mode, bool keepDisplay)
     {
-        AwakeMode.KeepAwake => ExecutionState.ES_CONTINUOUS | ExecutionState.ES_SYSTEM_REQUIRED,
-        AwakeMode.KeepDisplayOn => ExecutionState.ES_CONTINUOUS | ExecutionState.ES_SYSTEM_REQUIRED | ExecutionState.ES_DISPLAY_REQUIRED,
-        _ => ExecutionState.ES_CONTINUOUS,
-    };
+        if (mode == AwakeMode.Off)
+        {
+            return ExecutionState.ES_CONTINUOUS;
+        }
+
+        ExecutionState state = ExecutionState.ES_CONTINUOUS | ExecutionState.ES_SYSTEM_REQUIRED;
+        if (keepDisplay)
+        {
+            state |= ExecutionState.ES_DISPLAY_REQUIRED;
+        }
+
+        return state;
+    }
 
     private void Run()
     {

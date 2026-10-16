@@ -12,16 +12,16 @@ internal enum ExecutionState : uint
 }
 
 /// <summary>
-/// 唤醒模式。
+/// 唤醒模式。屏幕常亮不再属于模式，而是独立的叠加开关（见 <see cref="AwakeManager.SetState"/>）。
 /// </summary>
 internal enum AwakeMode
 {
     /// <summary>不干预，恢复正常电源策略。</summary>
     Off,
 
-    /// <summary>保持系统唤醒（不休眠），屏幕可熄灭。</summary>
+    /// <summary>保持系统唤醒（不休眠）。</summary>
     KeepAwake,
 
-    /// <summary>保持系统唤醒且屏幕常亮。</summary>
+    /// <summary>旧配置值，仅作反序列化兼容，加载时迁移为 KeepAwake + 屏幕常亮开关。</summary>
     KeepDisplayOn,
 }

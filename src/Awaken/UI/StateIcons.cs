@@ -4,40 +4,24 @@ using Awaken.Core;
 namespace Awaken.UI;
 
 /// <summary>
-/// 按模式程序化生成托盘图标（免 ico 资源文件），缓存复用，退出时统一销毁 GDI 句柄。
+/// 按状态程序化生成托盘图标（免 ico 资源文件），缓存复用，退出时统一销毁 GDI 句柄。
 /// </summary>
 internal static class StateIcons
 {
-    private static readonly Dictionary<AwakeMode, Icon> Cache = [];
-    private static Icon? _timedIcon;
+    private static readonly Dictionary<(bool Active, bool Display, bool Timed), Icon> Cache = [];
 
-    public static Icon For(AwakeMode mode)
+    /// <summary>状态 = 是否唤醒 × 是否屏幕常亮 × 是否定时。</summary>
+    public static Icon For(bool active, bool display, bool timed)
     {
-        if (Cache.TryGetValue(mode, out Icon? cached))
+        var key = (active, display, timed);
+        if (Cache.TryGetValue(key, out Icon? cached))
         {
             return cached;
         }
 
-        Icon icon = Draw(mode);
-        Cache[mode] = icon;
+        Icon icon = Draw(active, display, timed);
+        Cache[key] = icon;
         return icon;
-    }
-
-    /// <summary>定时模式图标：绿色圆 + 白色表盘。</summary>
-    public static Icon Timed()
-    {
-        if (_timedIcon is not null)
-        {
-            return _timedIcon;
-        }
-
-        using var bmp = new Bitmap(32, 32);
-        using var g = Graphics.FromImage(bmp);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        DrawCircle(g, filled: true, Color.FromArgb(76, 175, 80));
-        DrawClock(g);
-        _timedIcon = Icon.FromHandle(bmp.GetHicon());
-        return _timedIcon;
     }
 
     public static void DestroyAll()
@@ -48,31 +32,30 @@ internal static class StateIcons
         }
 
         Cache.Clear();
-        if (_timedIcon is not null)
-        {
-            _ = NativeMethods.DestroyIcon(_timedIcon.Handle);
-            _timedIcon = null;
-        }
     }
 
-    private static Icon Draw(AwakeMode mode)
+    private static Icon Draw(bool active, bool display, bool timed)
     {
         using var bmp = new Bitmap(32, 32);
         using var g = Graphics.FromImage(bmp);
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
-        switch (mode)
+        if (!active)
         {
-            case AwakeMode.KeepAwake:
-                DrawCircle(g, filled: true, Color.FromArgb(76, 175, 80));
-                break;
-            case AwakeMode.KeepDisplayOn:
-                DrawCircle(g, filled: true, Color.FromArgb(33, 150, 243));
+            DrawCircle(g, filled: false, Color.Gray);
+        }
+        else
+        {
+            DrawCircle(g, filled: true, display ? Color.FromArgb(33, 150, 243) : Color.FromArgb(76, 175, 80));
+            if (display)
+            {
                 DrawScreen(g);
-                break;
-            default:
-                DrawCircle(g, filled: false, Color.Gray);
-                break;
+            }
+
+            if (timed)
+            {
+                DrawClock(g);
+            }
         }
 
         return Icon.FromHandle(bmp.GetHicon());

@@ -5,8 +5,8 @@ using Awaken.Integration;
 namespace Awaken.UI;
 
 /// <summary>
-/// 托盘宿主：右键菜单切换唤醒模式（含定时模式），图标与提示随状态变化，
-/// 选择持久化到便携配置。
+/// 托盘宿主：唤醒模式（关闭/保持唤醒/定时）+ 独立的"屏幕常亮"叠加开关，
+/// 图标与提示随状态变化，选择持久化到便携配置。
 /// </summary>
 internal sealed class TrayApplicationContext : ApplicationContext
 {
@@ -14,47 +14,71 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private readonly AwakeManager _manager = new();
     private readonly NotifyIcon _trayIcon;
-    private readonly ToolStripMenuItem _offItem = new("关闭");
-    private readonly ToolStripMenuItem _keepAwakeItem = new("保持唤醒");
-    private readonly ToolStripMenuItem _keepDisplayItem = new("保持唤醒，屏幕常亮");
-    private readonly ToolStripMenuItem _timedItem = new("定时保持唤醒");
-    private readonly ToolStripMenuItem _timed30 = new("30 分钟");
-    private readonly ToolStripMenuItem _timed60 = new("1 小时");
-    private readonly ToolStripMenuItem _timed120 = new("2 小时");
-    private readonly ToolStripMenuItem _timedCustom = new("自定义...");
-    private readonly ToolStripMenuItem _autoStartItem = new("开机自启");
     private readonly System.Windows.Forms.Timer _tickTimer = new() { Interval = TickMs };
     private readonly AppConfig _config;
 
+    private ContextMenuStrip _menu = null!;
+    private ToolStripMenuItem _offItem = null!;
+    private ToolStripMenuItem _keepAwakeItem = null!;
+    private ToolStripMenuItem _timedItem = null!;
+    private ToolStripMenuItem _timed30 = null!;
+    private ToolStripMenuItem _timed60 = null!;
+    private ToolStripMenuItem _timed120 = null!;
+    private ToolStripMenuItem _timedCustom = null!;
+    private ToolStripMenuItem _displayItem = null!;
+    private ToolStripMenuItem _autoStartItem = null!;
+
     private AwakeMode _mode;
-    private ToolStripMenuItem? _timedChosen;
+    private bool _timedActive;
+    private int? _timedChosenMinutes;
     private DateTime _timedExpiry;
 
     public TrayApplicationContext()
     {
         _config = ConfigStore.Load();
+        MigrateLegacyMode();
 
-        ToolStripMenuItem[] timedMenu = [_timed30, _timed60, _timed120, _timedCustom];
-        _timedItem.DropDown.Items.AddRange(timedMenu);
-        _timed30.Click += (_, _) => StartTimed(TimeSpan.FromMinutes(30), _timed30);
-        _timed60.Click += (_, _) => StartTimed(TimeSpan.FromMinutes(60), _timed60);
-        _timed120.Click += (_, _) => StartTimed(TimeSpan.FromMinutes(120), _timed120);
-        _timedCustom.Click += (_, _) => StartTimedCustom();
-
-        var menu = new ContextMenuStrip();
-        menu.Items.AddRange([_offItem, _keepAwakeItem, _keepDisplayItem]);
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(_timedItem);
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(_autoStartItem);
-        menu.Items.Add(new ToolStripMenuItem("退出", null, (_, _) => Exit()));
-
-        _offItem.Click += (_, _) => SetMode(AwakeMode.Off);
-        _keepAwakeItem.Click += (_, _) => SetMode(AwakeMode.KeepAwake);
-        _keepDisplayItem.Click += (_, _) => SetMode(AwakeMode.KeepDisplayOn);
+        BuildMenu();
 
         _tickTimer.Tick += OnTick;
 
+        _trayIcon = new NotifyIcon
+        {
+            ContextMenuStrip = _menu,
+            Visible = true,
+        };
+        SetMode(_config.Mode);
+    }
+
+    /// <summary>旧配置 Mode == KeepDisplayOn 迁移为 KeepAwake + KeepDisplayOn 开关。</summary>
+    private void MigrateLegacyMode()
+    {
+        if (_config.Mode == AwakeMode.KeepDisplayOn)
+        {
+            _config.Mode = AwakeMode.KeepAwake;
+            _config.KeepDisplayOn = true;
+        }
+    }
+
+    private void BuildMenu()
+    {
+        _offItem = new ToolStripMenuItem("关闭");
+        _keepAwakeItem = new ToolStripMenuItem("保持唤醒");
+        _timedItem = new ToolStripMenuItem("定时保持唤醒");
+        _timed30 = new ToolStripMenuItem("30 分钟") { Tag = 30 };
+        _timed60 = new ToolStripMenuItem("1 小时") { Tag = 60 };
+        _timed120 = new ToolStripMenuItem("2 小时") { Tag = 120 };
+        _timedCustom = new ToolStripMenuItem("自定义...");
+        _displayItem = new ToolStripMenuItem("屏幕常亮");
+        _autoStartItem = new ToolStripMenuItem("开机自启");
+
+        _offItem.Click += (_, _) => SetMode(AwakeMode.Off);
+        _keepAwakeItem.Click += (_, _) => SetMode(AwakeMode.KeepAwake);
+        _timed30.Click += (_, _) => StartTimed(30);
+        _timed60.Click += (_, _) => StartTimed(60);
+        _timed120.Click += (_, _) => StartTimed(120);
+        _timedCustom.Click += (_, _) => StartTimedCustom();
+        _displayItem.Click += (_, _) => ToggleDisplay();
         _autoStartItem.Click += (_, _) =>
         {
             if (AutoStart.IsEnabled())
@@ -69,46 +93,52 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _autoStartItem.Checked = AutoStart.IsEnabled();
         };
 
-        AutoStart.SelfHeal();
+        _timedItem.DropDown.Items.AddRange([_timed30, _timed60, _timed120, _timedCustom]);
+
+        var menu = new ContextMenuStrip();
+        menu.Items.AddRange([_offItem, _keepAwakeItem]);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_timedItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_displayItem);
+        menu.Items.Add(_autoStartItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("退出", null, (_, _) => Exit()));
+
         _autoStartItem.Checked = AutoStart.IsEnabled();
 
-        _trayIcon = new NotifyIcon
+        ContextMenuStrip? old = _menu;
+        _menu = menu;
+        if (_trayIcon is not null)
         {
-            ContextMenuStrip = menu,
-            Visible = true,
-        };
-        SetMode(_config.Mode);
+            _trayIcon.ContextMenuStrip = menu;
+        }
+
+        old?.Dispose();
     }
 
     private void SetMode(AwakeMode mode)
     {
-        _timedChosen = null;
-        _timedItem.Checked = false;
+        _timedActive = false;
+        _timedChosenMinutes = null;
         _tickTimer.Stop();
-        ApplyMode(mode);
-        UpdateChecks();
-    }
-
-    /// <summary>只更新引擎、图标、配置与基础提示，不触碰定时状态。</summary>
-    private void ApplyMode(AwakeMode mode)
-    {
         _mode = mode;
-        _manager.SetMode(mode);
         _config.Mode = mode;
         ConfigStore.Save(_config);
-        _trayIcon.Icon = StateIcons.For(mode);
-        _trayIcon.Text = TooltipFor(mode);
+        UpdateEngine();
+        UpdateVisuals();
     }
 
-    private void StartTimed(TimeSpan duration, ToolStripMenuItem chosen)
+    private void StartTimed(int minutes, bool isCustom = false)
     {
-        _timedExpiry = DateTime.UtcNow + duration;
-        _timedChosen = chosen;
-        _manager.SetMode(AwakeMode.KeepAwake);
-        _trayIcon.Icon = StateIcons.Timed();
-        UpdateTimedTooltip();
+        _timedActive = true;
+        _timedChosenMinutes = isCustom ? null : minutes;
+        _timedExpiry = DateTime.UtcNow + TimeSpan.FromMinutes(minutes);
+        // 定时属于临时状态，不回写配置：异常退出后重启按上次稳定模式恢复。
+        _mode = AwakeMode.KeepAwake;
+        UpdateEngine();
         _tickTimer.Start();
-        UpdateChecks();
+        UpdateVisuals();
     }
 
     private void StartTimedCustom()
@@ -121,61 +151,70 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _config.LastTimedMinutes = dialog.Minutes;
         ConfigStore.Save(_config);
-        StartTimed(TimeSpan.FromMinutes(dialog.Minutes), _timedCustom);
+        StartTimed(dialog.Minutes, isCustom: true);
     }
+
+    private void ToggleDisplay()
+    {
+        _config.KeepDisplayOn = !_config.KeepDisplayOn;
+        ConfigStore.Save(_config);
+        UpdateEngine();
+        UpdateVisuals();
+    }
+
+    private void UpdateEngine() => _manager.SetState(_mode, _config.KeepDisplayOn);
 
     private void OnTick(object? sender, EventArgs e)
     {
-        if (_timedChosen is null)
+        if (!_timedActive)
         {
             return;
         }
 
-        TimeSpan remaining = _timedExpiry - DateTime.UtcNow;
-        if (remaining <= TimeSpan.Zero)
+        if (_timedExpiry - DateTime.UtcNow <= TimeSpan.Zero)
         {
             SetMode(AwakeMode.Off);
             return;
         }
 
-        UpdateTimedTooltip();
+        UpdateVisuals();
     }
 
-    private void UpdateTimedTooltip()
+    private void UpdateVisuals()
     {
-        TimeSpan remaining = _timedExpiry - DateTime.UtcNow;
-        string text = $"Awaken - 定时保持唤醒（剩 {FormatRemaining(remaining)}）";
-        if (text.Length > 63)
+        bool active = _mode != AwakeMode.Off;
+        _trayIcon.Icon = StateIcons.For(active, _config.KeepDisplayOn, _timedActive);
+        _trayIcon.Text = ComposeTooltip();
+        _offItem.Checked = !_timedActive && _mode == AwakeMode.Off;
+        _keepAwakeItem.Checked = !_timedActive && _mode == AwakeMode.KeepAwake;
+        _timedItem.Checked = _timedActive;
+        _timed30.Checked = _timedActive && _timedChosenMinutes == 30;
+        _timed60.Checked = _timedActive && _timedChosenMinutes == 60;
+        _timed120.Checked = _timedActive && _timedChosenMinutes == 120;
+        _timedCustom.Checked = _timedActive && _timedChosenMinutes is null;
+        _displayItem.Checked = _config.KeepDisplayOn;
+    }
+
+    private string ComposeTooltip()
+    {
+        string core;
+        if (_mode == AwakeMode.Off)
         {
-            text = text[..63];
+            core = "未激活";
+        }
+        else if (_timedActive)
+        {
+            core = $"定时保持唤醒（剩 {DurationFormat.For(_timedExpiry - DateTime.UtcNow)}）";
+        }
+        else
+        {
+            core = "保持唤醒";
         }
 
-        _trayIcon.Text = text;
+        string display = _config.KeepDisplayOn && _mode != AwakeMode.Off ? "，屏幕常亮" : string.Empty;
+        string text = $"Awaken - {core}{display}";
+        return text.Length > 63 ? text[..63] : text;
     }
-
-    private static string FormatRemaining(TimeSpan remaining) => remaining.TotalHours >= 1
-        ? $"{(int)remaining.TotalHours} 小时 {remaining.Minutes} 分"
-        : $"{(int)Math.Ceiling(remaining.TotalMinutes)} 分钟";
-
-    private void UpdateChecks()
-    {
-        bool timed = _timedChosen is not null;
-        _offItem.Checked = !timed && _mode == AwakeMode.Off;
-        _keepAwakeItem.Checked = !timed && _mode == AwakeMode.KeepAwake;
-        _keepDisplayItem.Checked = !timed && _mode == AwakeMode.KeepDisplayOn;
-        _timedItem.Checked = timed;
-        _timed30.Checked = _timedChosen == _timed30;
-        _timed60.Checked = _timedChosen == _timed60;
-        _timed120.Checked = _timedChosen == _timed120;
-        _timedCustom.Checked = _timedChosen == _timedCustom;
-    }
-
-    private static string TooltipFor(AwakeMode mode) => mode switch
-    {
-        AwakeMode.KeepAwake => "Awaken - 保持唤醒",
-        AwakeMode.KeepDisplayOn => "Awaken - 保持唤醒，屏幕常亮",
-        _ => "Awaken - 未激活",
-    };
 
     private void Exit()
     {
