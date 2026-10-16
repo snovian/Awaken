@@ -5,8 +5,8 @@ using Awaken.Integration;
 namespace Awaken.UI;
 
 /// <summary>
-/// 托盘宿主：唤醒模式（关闭/保持唤醒/定时）+ 独立的"屏幕常亮"叠加开关，
-/// 图标与提示随状态变化，选择持久化到便携配置。
+/// 托盘宿主：唤醒模式（关闭/保持唤醒）+ 快捷定时项（一级菜单）+ 直至时刻 +
+/// 独立的"屏幕常亮"叠加开关，图标与提示随状态变化，选择持久化到便携配置。
 /// </summary>
 internal sealed class TrayApplicationContext : ApplicationContext
 {
@@ -20,11 +20,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private ContextMenuStrip _menu = null!;
     private ToolStripMenuItem _offItem = null!;
     private ToolStripMenuItem _keepAwakeItem = null!;
-    private ToolStripMenuItem _timedItem = null!;
-    private ToolStripMenuItem _timed30 = null!;
-    private ToolStripMenuItem _timed60 = null!;
-    private ToolStripMenuItem _timed120 = null!;
-    private ToolStripMenuItem _timedCustom = null!;
     private ToolStripMenuItem _timedUntilItem = null!;
     private ToolStripMenuItem _displayItem = null!;
     private ToolStripMenuItem _autoStartItem = null!;
@@ -34,7 +29,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         None,
         Preset,
-        Custom,
         Until,
     }
 
@@ -77,21 +71,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _offItem = new ToolStripMenuItem("关闭");
         _keepAwakeItem = new ToolStripMenuItem("保持唤醒");
-        _timedItem = new ToolStripMenuItem("定时保持唤醒");
-        _timed30 = new ToolStripMenuItem("30 分钟") { Tag = 30 };
-        _timed60 = new ToolStripMenuItem("1 小时") { Tag = 60 };
-        _timed120 = new ToolStripMenuItem("2 小时") { Tag = 120 };
-        _timedCustom = new ToolStripMenuItem("自定义...");
         _timedUntilItem = new ToolStripMenuItem("保持唤醒直至...");
         _displayItem = new ToolStripMenuItem("屏幕常亮");
         _autoStartItem = new ToolStripMenuItem("开机自启");
 
         _offItem.Click += (_, _) => SetMode(AwakeMode.Off);
         _keepAwakeItem.Click += (_, _) => SetMode(AwakeMode.KeepAwake);
-        _timed30.Click += (_, _) => StartTimed(30);
-        _timed60.Click += (_, _) => StartTimed(60);
-        _timed120.Click += (_, _) => StartTimed(120);
-        _timedCustom.Click += (_, _) => StartTimedCustom();
         _timedUntilItem.Click += (_, _) => StartUntilFromDialog();
         _displayItem.Click += (_, _) => ToggleDisplay();
         _autoStartItem.Click += (_, _) =>
@@ -108,15 +93,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _autoStartItem.Checked = AutoStart.IsEnabled();
         };
 
-        _timedItem.DropDown.Items.AddRange([_timed30, _timed60, _timed120, _timedCustom]);
-
         var menu = new ContextMenuStrip();
         menu.Items.AddRange([_offItem, _keepAwakeItem]);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(_timedItem);
         menu.Items.Add(_timedUntilItem);
 
-        // 一级菜单快捷定时项，内容来自设置。
+        // 一级菜单快捷定时项，默认 30 分钟 / 1 小时 / 2 小时，可在设置中调整。
         foreach (int minutes in _config.RootTimedMinutes.Order())
         {
             var item = new ToolStripMenuItem($"保持唤醒 {DurationFormat.For(minutes)}") { Tag = minutes };
@@ -158,25 +140,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         UpdateVisuals();
     }
 
-    private void StartTimed(int minutes, bool isCustom = false)
+    private void StartTimed(int minutes)
     {
-        _timedKind = isCustom ? TimedKind.Custom : TimedKind.Preset;
-        _presetMinutes = isCustom ? null : minutes;
+        _timedKind = TimedKind.Preset;
+        _presetMinutes = minutes;
         _timedExpiry = DateTime.UtcNow + TimeSpan.FromMinutes(minutes);
         StartTimedCore();
-    }
-
-    private void StartTimedCustom()
-    {
-        using var dialog = new TimedDialog(_config.LastTimedMinutes);
-        if (dialog.ShowDialog() != DialogResult.OK)
-        {
-            return;
-        }
-
-        _config.LastTimedMinutes = dialog.Minutes;
-        ConfigStore.Save(_config);
-        StartTimed(dialog.Minutes, isCustom: true);
     }
 
     private void StartUntilFromDialog()
@@ -259,11 +228,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _trayIcon.Text = ComposeTooltip();
         _offItem.Checked = !_timedActive && _mode == AwakeMode.Off;
         _keepAwakeItem.Checked = !_timedActive && _mode == AwakeMode.KeepAwake;
-        _timedItem.Checked = _timedActive;
-        _timed30.Checked = _timedKind == TimedKind.Preset && _presetMinutes == 30;
-        _timed60.Checked = _timedKind == TimedKind.Preset && _presetMinutes == 60;
-        _timed120.Checked = _timedKind == TimedKind.Preset && _presetMinutes == 120;
-        _timedCustom.Checked = _timedKind == TimedKind.Custom;
         _timedUntilItem.Checked = _timedKind == TimedKind.Until;
         _timedUntilItem.Text = _timedKind == TimedKind.Until
             ? $"保持唤醒直至 {_timedExpiry.ToLocalTime():HH:mm}"
