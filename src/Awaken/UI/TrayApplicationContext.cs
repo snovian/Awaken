@@ -25,13 +25,23 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private ToolStripMenuItem _timed60 = null!;
     private ToolStripMenuItem _timed120 = null!;
     private ToolStripMenuItem _timedCustom = null!;
+    private ToolStripMenuItem _timedUntilItem = null!;
     private ToolStripMenuItem _displayItem = null!;
     private ToolStripMenuItem _autoStartItem = null!;
     private readonly List<ToolStripMenuItem> _rootTimedItems = [];
 
+    private enum TimedKind
+    {
+        None,
+        Preset,
+        Custom,
+        Until,
+    }
+
     private AwakeMode _mode;
     private bool _timedActive;
-    private int? _timedChosenMinutes;
+    private TimedKind _timedKind = TimedKind.None;
+    private int? _presetMinutes;
     private DateTime _timedExpiry;
 
     public TrayApplicationContext()
@@ -72,6 +82,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _timed60 = new ToolStripMenuItem("1 小时") { Tag = 60 };
         _timed120 = new ToolStripMenuItem("2 小时") { Tag = 120 };
         _timedCustom = new ToolStripMenuItem("自定义...");
+        _timedUntilItem = new ToolStripMenuItem("保持唤醒直至...");
         _displayItem = new ToolStripMenuItem("屏幕常亮");
         _autoStartItem = new ToolStripMenuItem("开机自启");
 
@@ -81,6 +92,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _timed60.Click += (_, _) => StartTimed(60);
         _timed120.Click += (_, _) => StartTimed(120);
         _timedCustom.Click += (_, _) => StartTimedCustom();
+        _timedUntilItem.Click += (_, _) => StartUntilFromDialog();
         _displayItem.Click += (_, _) => ToggleDisplay();
         _autoStartItem.Click += (_, _) =>
         {
@@ -97,6 +109,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
 
         _timedItem.DropDown.Items.AddRange([_timed30, _timed60, _timed120, _timedCustom]);
+        _timedItem.DropDown.Items.Add(new ToolStripSeparator());
+        _timedItem.DropDown.Items.Add(_timedUntilItem);
 
         var menu = new ContextMenuStrip();
         menu.Items.AddRange([_offItem, _keepAwakeItem]);
@@ -134,7 +148,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private void SetMode(AwakeMode mode)
     {
         _timedActive = false;
-        _timedChosenMinutes = null;
+        _timedKind = TimedKind.None;
+        _presetMinutes = null;
+        _timedUntilItem.Text = "保持唤醒直至...";
         _tickTimer.Stop();
         _mode = mode;
         _config.Mode = mode;
@@ -145,14 +161,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void StartTimed(int minutes, bool isCustom = false)
     {
-        _timedActive = true;
-        _timedChosenMinutes = isCustom ? null : minutes;
+        _timedKind = isCustom ? TimedKind.Custom : TimedKind.Preset;
+        _presetMinutes = isCustom ? null : minutes;
         _timedExpiry = DateTime.UtcNow + TimeSpan.FromMinutes(minutes);
-        // 定时属于临时状态，不回写配置：异常退出后重启按上次稳定模式恢复。
-        _mode = AwakeMode.KeepAwake;
-        UpdateEngine();
-        _tickTimer.Start();
-        UpdateVisuals();
+        StartTimedCore();
     }
 
     private void StartTimedCustom()
@@ -166,6 +178,38 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _config.LastTimedMinutes = dialog.Minutes;
         ConfigStore.Save(_config);
         StartTimed(dialog.Minutes, isCustom: true);
+    }
+
+    private void StartUntilFromDialog()
+    {
+        using var dialog = new TimeDialog();
+        if (dialog.ShowDialog() != DialogResult.OK)
+        {
+            return;
+        }
+
+        DateTime now = DateTime.Now;
+        DateTime target = now.Date + dialog.TimeOfDay;
+        if (target <= now)
+        {
+            target = target.AddDays(1);
+        }
+
+        _timedKind = TimedKind.Until;
+        _presetMinutes = null;
+        _timedExpiry = target.ToUniversalTime();
+        StartTimedCore();
+    }
+
+    /// <summary>定时类激活的公共收尾：切换引擎、启动倒计时、刷新界面。</summary>
+    private void StartTimedCore()
+    {
+        _timedActive = true;
+        // 定时属于临时状态，不回写配置：异常退出后重启按上次稳定模式恢复。
+        _mode = AwakeMode.KeepAwake;
+        UpdateEngine();
+        _tickTimer.Start();
+        UpdateVisuals();
     }
 
     private void ToggleDisplay()
@@ -216,13 +260,17 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _offItem.Checked = !_timedActive && _mode == AwakeMode.Off;
         _keepAwakeItem.Checked = !_timedActive && _mode == AwakeMode.KeepAwake;
         _timedItem.Checked = _timedActive;
-        _timed30.Checked = _timedActive && _timedChosenMinutes == 30;
-        _timed60.Checked = _timedActive && _timedChosenMinutes == 60;
-        _timed120.Checked = _timedActive && _timedChosenMinutes == 120;
-        _timedCustom.Checked = _timedActive && _timedChosenMinutes is null;
+        _timed30.Checked = _timedKind == TimedKind.Preset && _presetMinutes == 30;
+        _timed60.Checked = _timedKind == TimedKind.Preset && _presetMinutes == 60;
+        _timed120.Checked = _timedKind == TimedKind.Preset && _presetMinutes == 120;
+        _timedCustom.Checked = _timedKind == TimedKind.Custom;
+        _timedUntilItem.Checked = _timedKind == TimedKind.Until;
+        _timedUntilItem.Text = _timedKind == TimedKind.Until
+            ? $"保持唤醒直至 {_timedExpiry.ToLocalTime():HH:mm}"
+            : "保持唤醒直至...";
         foreach (ToolStripMenuItem item in _rootTimedItems)
         {
-            item.Checked = _timedActive && _timedChosenMinutes == (int)item.Tag!;
+            item.Checked = _timedKind == TimedKind.Preset && _presetMinutes == (int)item.Tag!;
         }
 
         _displayItem.Checked = _config.KeepDisplayOn;
@@ -237,7 +285,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
         else if (_timedActive)
         {
-            core = $"定时保持唤醒（剩 {DurationFormat.For(_timedExpiry - DateTime.UtcNow)}）";
+            string until = _timedKind == TimedKind.Until
+                ? $"至 {_timedExpiry.ToLocalTime():HH:mm}"
+                : string.Empty;
+            core = $"定时保持唤醒{until}（剩 {DurationFormat.For(_timedExpiry - DateTime.UtcNow)}）";
         }
         else
         {
